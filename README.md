@@ -1,9 +1,9 @@
 # sc-DNA-Methylation-Cell-Cycle-Analysis
 
-Please see [Progress report](https://www.overleaf.com/9994449956ztrhzxmtynvt#f18ead) (Link is for overleaf) for detailed background and steps for the analysis. Also download gene annotation data from [GENCODE](https://www.gencodegenes.org/human/release_18.html) and put the gtf file in "CpGs_Inside_Gene" folder.
+Please see [Progress report](https://www.overleaf.com/9994449956ztrhzxmtynvt#f18ead) (Link is for overleaf) for detailed background and steps for the analysis. 
 
 ## Setup
-First download this "sc-DNA-Methylation-Cell-Cycle-Analysis" folder from github and put it in your working directory.
+First download this "sc-DNA-Methylation-Cell-Cycle-Analysis" folder from github and put it in your working directory. Also download gene annotation data from [GENCODE](https://www.gencodegenes.org/human/release_18.html) and put the gtf file in "CpGs_Inside_Gene" folder.
 
 To run the code, first run the "Annotation.R" script in the "CpGs_Inside_Gene" folder. This will generate a csv file "CpG_Num_Inside_Gene.csv" in the main folder that aligns CpG's position with gene's position to get number of CpGs inside each gene. 
 
