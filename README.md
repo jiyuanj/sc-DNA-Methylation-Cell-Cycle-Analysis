@@ -1,6 +1,6 @@
 # sc-DNA-Methylation-Cell-Cycle-Analysis
 
-Please see [Progress report](https://www.overleaf.com/9994449956ztrhzxmtynvt#f18ead) (Link is for overleaf link) for detailed background and steps for the analysis.
+Please see [Progress report](https://www.overleaf.com/9994449956ztrhzxmtynvt#f18ead) (Link is for overleaf) for detailed background and steps for the analysis.
 
 ## Setup
 First download this "sc-DNA-Methylation-Cell-Cycle-Analysis" folder from github and put it in your working directory.
