@@ -1,0 +1,485 @@
+---
+title: "Progress_Summarization"
+output: pdf_document
+date: "2025-02-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if (!requireNamespace("tidyverse", quietly = TRUE)) {
+  install.packages("tidyverse")
+}
+library(tidyverse)
+
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  install.packages("dplyr")
+}
+library(dplyr)
+
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
+}
+
+
+if (!requireNamespace("tricycle", quietly = TRUE)) {
+  BiocManager::install("tricycle")
+}
+library(tricycle)
+
+if (!requireNamespace("org.Mm.eg.db", quietly = TRUE)) {
+  BiocManager::install("org.Mm.eg.db")
+}
+library(org.Mm.eg.db)
+
+if (!requireNamespace("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+library(ggplot2)
+
+if (!requireNamespace("cowplot", quietly = TRUE)) {
+  install.packages("cowplot")
+}
+library(cowplot)
+
+if (!requireNamespace("foreach", quietly = TRUE)) {
+  install.packages("foreach")
+}
+library(foreach)
+
+if (!requireNamespace("scattermore", quietly = TRUE)) {
+  install.packages("scattermore")
+}
+library(scattermore)
+
+if (!requireNamespace("psych", quietly = TRUE)) {
+  install.packages("psych")
+}
+library(psych)
+
+library(parallel)
+
+if (!requireNamespace("future.apply", quietly = TRUE)) {
+  install.packages("future.apply")
+}
+library(future.apply)
+
+if (!requireNamespace("reshape2", quietly = TRUE)) {
+  install.packages("reshape2")
+}
+library(reshape2)
+library(ggrepel)
+library(tidyr)
+library(shiny)
+library(viridis)
+
+# Set working directory
+setwd("Your/Working/Directory/sc-DNA-Methylation-Cell-Cycle-Analysis")
+
+# Read number of CpGs inside gene data
+CpG_df <- read.csv("CpG_Num_Inside_Gene.csv", header = TRUE)
+```
+
+Function to expand a proportion to a binary vector of a given length
+```{r, include = FALSE}
+expand_to_cpg <- function(proportion, cpg_count) {
+  # Calculate the number of 1s needed in the binary vector
+  ones_count <- round(proportion * cpg_count)
+  
+  # Create a binary vector with the calculated number of 1s and 0s
+  binary_vector <- rep(0, cpg_count)
+  
+  # Assign 1s to first coupse of positions of binary vector
+  if (ones_count > 0) {
+    binary_vector[1:ones_count] <- 1
+  }
+  
+  return(binary_vector)
+}
+```
+
+## Data Generation 
+Generate data using cosine function and hyper parameters
+```{r echo=FALSE, cars, include = FALSE}
+###Simulation Setting cell-cycle
+gene_num <- dim(CpG_df)[1]
+set.seed(05092024)
+x<-seq(0,2*pi,length.out=1000)
+loc_pram<-runif(gene_num, min = 0, max = 2 * pi)
+noise<-rnorm(n=1000,mean=0,sd=0.01)
+
+####Generate two matrix
+theta_matrix<-c()
+for(i in 1:length(loc_pram)){
+  gene_theta<-x-loc_pram[i]
+  theta_matrix<-rbind(theta_matrix,gene_theta)
+}
+theta_matrix<-as.data.frame(theta_matrix)
+rownames(theta_matrix)<-paste0('gene_',1:gene_num)
+colnames(theta_matrix)<-paste0('cell_',1:1000)
+
+m_matrix<-c()
+for(i in 1:length(loc_pram)){
+  gene_theta<-0.52*cos(x-loc_pram[i])+noise+0.5
+  m_matrix<-rbind(m_matrix,gene_theta)
+}
+m_matrix<-as.data.frame(m_matrix)
+rownames(m_matrix)<-paste0('gene_',1:gene_num)
+colnames(m_matrix)<-paste0('cell_',1:1000)
+
+```
+
+Plot of generated data
+```{r}
+library(ggplot2)
+library(ggrepel)
+library(tidyr)
+library(viridis)
+
+# Make sure methylation proportion fall insde [0,1]
+m_matrix[m_matrix < 0] <- 0
+m_matrix[m_matrix > 1] <- 1
+
+
+m_matrix_long <- as.data.frame(t(m_matrix))
+m_matrix_long$cell <- 1:nrow(m_matrix_long)  
+m_matrix_long <- pivot_longer(m_matrix_long, cols = starts_with("gene_"), names_to = "gene", values_to = "methylation")
+
+# Select genes for plotting
+selected_genes <- c("gene_288", "gene_4", "gene_3")
+
+# Filter data for selected genes
+plot_data <- m_matrix_long[m_matrix_long$gene %in% selected_genes, ]
+cols_to_mark <- c(1, 250, 500, 750, 1000)
+highlight_data <- plot_data[plot_data$cell %in% cols_to_mark, ]
+
+color_palette <- brewer.pal(3, "Set2")
+
+ggplot(plot_data, aes(x = cell, y = methylation, color = gene)) +
+  geom_line(size = 0.5) +  
+  geom_point(data = highlight_data, aes(x = cell, y = methylation, color = gene), size = 3) +  
+  geom_text_repel(data = highlight_data, aes(label = paste0(" Cell ", cell)), size = 4, box.padding = 0.3) +
+  geom_line(aes(x = cell, y = 0.52*cos((cell / 1000)*2*pi)+0.5), color = "gray30", linetype = "dashed", size = 1.5) +
+  scale_color_manual(values = color_palette) +  
+  theme_minimal(base_size = 14) +  
+  labs(
+       x = "Cell Cycle Progression",
+       y = "Methylation Value",
+       color = "Genes") +
+  theme(
+    legend.position = "top", 
+    legend.title = element_text(size = 14), 
+    legend.text = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray80", linetype = "dotted"),  
+    panel.grid.minor = element_blank()
+  )
+```
+## Data Processing
+
+Expand to GcP level methylation data from gene-level
+```{r}
+n_genes <- 500
+n_cells <- 1000
+
+total_rows <- sum(CpG_df$total_cpg_num[1:n_genes])
+
+expanded_matrix <- matrix(0, nrow = total_rows, ncol = n_cells)
+row_names <- character(total_rows)
+
+### Expand the Matrix
+row_index <- 1  
+
+for (gene in 1:n_genes) {
+  cpg_count <- CpG_df$total_cpg_num[gene] 
+  for (cell in 1:n_cells) {
+    # Get the methylation proportion for this gene and cell
+    proportion <- m_matrix[gene, cell]
+    # Expand this proportion to a binary vector of length `cpg_count`
+    binary_vector <- expand_to_cpg(proportion, cpg_count)
+    # Assign this binary vector to the appropriate rows in the expanded matrix
+    expanded_matrix[row_index:(row_index + cpg_count - 1), cell] <- binary_vector
+  }
+  for (cpg in 1:cpg_count) {
+    row_names[row_index] <- paste0("g", gene, "CpG", cpg)
+    # Move to the next block of rows in the expanded matrix
+    row_index <- row_index + 1
+  }
+}
+
+rownames(expanded_matrix)<-row_names
+colnames(expanded_matrix)<-paste0('cell_',1:n_cells)
+
+# Check number of Cells with 0 variance
+dim(expanded_matrix[, apply(expanded_matrix, 2, var) > 0, drop = FALSE])
+
+# Save expanded_matrix as csv for calculating Tetrachoric correlation in other scripts
+write.csv(expanded_matrix, "Tetra_Cal/expanded.csv")
+```
+
+## Analysis Results
+Running PCA on CpG-level methylation data and getting embedding space
+```{r}
+###PCA Analysis
+M_cell_matrix<-t(expanded_matrix)
+pca_res <- prcomp(M_cell_matrix, scale = TRUE)
+```
+
+Running PCoA on dissimilarity matrix of CpG-level methylation data constructed by column pairwise Tetrachoric correlation, and getting embedding space
+```{r}
+# tet <- tetrachoric(expanded_matrix)$rho
+# Warning: Matrix was not positive definite, smoothing was done
+tet <- read.csv("tet.csv")[,-1]
+rownames(tet)<-colnames(m_matrix)
+tet <- 1-abs(tet)
+
+pcoa_result_tet <- cmdscale(tet, k = 2, eig = TRUE)
+```
+
+## Plot of Embedding Space
+
+Plot of PCA embedding space with color gradient representing gene-specific methylation proportion
+```{r}
+g <- 500
+temp_df <- data.frame(
+  x = pca_res$x[, 1],
+  y = pca_res$x[, 2],
+  z = t(m_matrix[cpg,])
+)
+
+colnames(temp_df) <- c("x", "y", "gene")
+highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_1","cell_250", "cell_500", "cell_750", "cell_1000"), ]
+
+ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+  geom_point(size = 1) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    title = paste("Expression Pattern Over All Cells of Gene ", g, " in Embedding Space of PCA"),
+    x = "Dimension 1",
+    y = "Dimension 2",
+    color = "Methylation Proportion"
+  ) +
+  geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+```
+
+Plot of PCA embedding space with color gradient representing cell index order
+```{r}
+temp_df <- data.frame(
+  x = pca_res$x[, 1],
+  y = pca_res$x[, 2],
+  z = seq(1:length(pca_res$x[, 2]))
+)
+
+colnames(temp_df) <- c("x", "y", "gene")
+highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_1","cell_250", "cell_500", "cell_750", "cell_1000"), ]
+
+ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+  geom_point(size = 1) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    x = "Dimension 1",
+    y = "Dimension 2",
+    color = "Index Position"
+  ) +
+  geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+```
+
+Dynamic Plot of PCA embedding space with color gradient representing gene-specific methylation proportion varying different genes
+```{r}
+ui <- fluidPage(
+  titlePanel("Dynamic Expression Pattern in PCA Embedding Space"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("g", "Select Gene Index (g):", min = 1, max = n_genes, value = 500, step = 1)
+    ),
+    
+    mainPanel(
+      plotOutput("dynamicPCAPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  output$dynamicPCAPlot <- renderPlot({
+    g <- input$g  
+    
+    temp_df <- data.frame(
+      x = pca_res$x[, 1],
+      y = pca_res$x[, 2],
+      gene = t(m_matrix[g, ])
+    )
+    
+    colnames(temp_df) <- c("x", "y", "gene")
+    rownames(temp_df) <- paste0("cell_", 1:1000)  
+
+    highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_1", "cell_250", "cell_500", "cell_750", "cell_1000"), ]
+    
+    ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+      geom_point(size = 1) +
+      scale_color_gradient(low = "blue", high = "red") +
+      theme_minimal() +
+      labs(
+        title = paste("Expression Pattern Over All Cells of Gene ", g, " in PCA Space"),
+        x = "Dimension 1",
+        y = "Dimension 2",
+        color = "Methylation Proportion"
+      ) +
+      geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+Note that for PCoA plots, cell 1 to cell 500 will form a perfect circle and cell 500 to cell 1000 form another perfect circle. Thus for each plot with color gradient on gene-specific methylation proportion and cell index, we will provide plot cor cell 1 to cell 500 and cell 500 to cell 1000 seperately. 
+
+Plot of PCoA embedding space with color gradient representing gene-specific methylation proportion for cell 1 to cell 500
+```{r}
+g <- 500
+
+temp_df <- data.frame(
+  x = pcoa_result_tet[["points"]][, 1][1:500],
+  y = pcoa_result_tet[["points"]][, 2][1:500],
+  z = t(m_matrix[g,][1:500])
+)
+
+colnames(temp_df) <- c("x", "y", "gene")
+highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_1","cell_250", "cell_500"), ]
+
+ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+  geom_point(size = 1) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    x = "Dimension 1",
+    y = "Dimension 2",
+    color = "Methylation Proportion"
+  ) +
+  geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+```
+
+Plot of PCoA(Multi-Dimensional Scaling) embedding space with color gradient representing gene-specific methylation proportion for cell 500 to cell 1000.
+```{r}
+temp_df <- data.frame(
+  x = pcoa_result_tet[["points"]][, 1][500:1000],
+  y = pcoa_result_tet[["points"]][, 2][500:1000],
+  z = t(m_matrix[g,][500:1000])
+)
+
+colnames(temp_df) <- c("x", "y", "gene")
+highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_500","cell_750","cell_1000"), ]
+
+ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+  geom_point(size = 1) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    x = "Dimension 1",
+    y = "Dimension 2",
+    color = "Methylation Proportion"
+  ) +
+  geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+```
+
+Plot of PCoA(Multi-Dimensional Scaling) embedding space with color gradient representing cell index order for cell 1 to cell 500.
+```{r}
+temp_df <- data.frame(
+  x = pcoa_result_tet[["points"]][, 1][1:500],
+  y = pcoa_result_tet[["points"]][, 2][1:500],
+  z = seq(1, length(pcoa_result_tet[["points"]][, 1][1:500]))
+)
+
+colnames(temp_df) <- c("x", "y", "gene")
+highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_1","cell_250", "cell_500"), ]
+
+ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+  geom_point(size = 1) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    x = "Dimension 1",
+    y = "Dimension 2",
+    color = "Index Position"
+  ) +
+  geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+```
+
+Plot of PCoA(Multi-Dimensional Scaling) embedding space with color gradient representing cell index order for cell 500 to cell 1000.
+```{r}
+temp_df <- data.frame(
+  x = pcoa_result_tet[["points"]][, 1][500:1000],
+  y = pcoa_result_tet[["points"]][, 2][500:1000],
+  z = seq(500, length(pcoa_result_tet[["points"]][, 1]))
+)
+
+colnames(temp_df) <- c("x", "y", "gene")
+
+highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_500","cell_750", "cell_1000"), ]
+
+ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+  geom_point(size = 1) +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(
+    x = "Dimension 1",
+    y = "Dimension 2",
+    color = "Index Position"
+  ) +
+  geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+```
+
+Dynamic Plot of PCoA(Multi-Dimensional Scaling) embedding space with color gradient representing gene-specific methylation proportion varying different genes
+```{r}
+ui <- fluidPage(
+  titlePanel("Dynamic Expression Pattern in PCoA Embedding Space"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("g", "Select Gene Index (g):", min = 1, max = n_genes, value = 500, step = 1)
+    ),
+    
+    mainPanel(
+      plotOutput("dynamicPCoAPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  output$dynamicPCoAPlot <- renderPlot({
+    g <- input$g  
+    
+    temp_df <- data.frame(
+      x = pcoa_result_tet[["points"]][, 1],
+      y = pcoa_result_tet[["points"]][, 2],
+      gene = t(m_matrix[g, ])
+    )
+    
+    colnames(temp_df) <- c("x", "y", "gene")
+    rownames(temp_df) <- paste0("cell_", 1:1000)  
+
+    highlight_obs <- temp_df[rownames(temp_df) %in% c("cell_1", "cell_250", "cell_500", "cell_750", "cell_1000"), ]
+    
+    ggplot(temp_df, aes(x = x, y = y, color = gene)) +
+      geom_point(size = 1) +
+      scale_color_gradient(low = "blue", high = "red") +
+      theme_minimal() +
+      labs(
+        title = paste("Expression Pattern Over All Cells of Gene ", g, " in PCoA Space"),
+        x = "Dimension 1",
+        y = "Dimension 2",
+        color = "Methylation Proportion"
+      ) +
+      geom_text(data = highlight_obs, aes(label = rownames(highlight_obs)), vjust = -1, hjust = 1)
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+
+
+
+
+
