@@ -1,6 +1,6 @@
 # sc-DNA-Methylation-Cell-Cycle-Analysis
 
-Please see [Progress report](https://www.overleaf.com/9994449956ztrhzxmtynvt#f18ead) (Link is for overleaf) for detailed background and steps for the analysis.
+Please see [Progress report](https://www.overleaf.com/9994449956ztrhzxmtynvt#f18ead) (Link is for overleaf) for detailed background and steps for the analysis. Also download gene annotation data from [GENCODE](https://www.gencodegenes.org/human/release_18.html) and put the gtf file in "CpGs_Inside_Gene" folder. 
 
 ## Setup
 First download this "sc-DNA-Methylation-Cell-Cycle-Analysis" folder from github and put it in your working directory.
