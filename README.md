@@ -9,7 +9,7 @@ To run the code, first run the "Annotation.R" script in the "CpGs_Inside_Gene" f
 
 Then run first 216 lines of "Progress_Summarization" markdown file. It will simulate periodic gene-level sc-DNA methylation data (methylation proportion for each gene with 1000 timepoints/cells), expand to CpG-level data using information from "CpG_Num_Inside_Gene.csv". At line 216 it will save the "expanded_matrix.csv" to "Tetra_Cal" folder to compute column pairwise (each pair of cells) Tetrachoric correlation of it (prepare for multi-dimensional scaling).
 
-Next upload the "Tetra_Cal" folder onto computing cluster. Open this folder on computing cluster and enter ```sbatch tetra.slurm``` to run the "Tetrachoric_Calculation.R" script in multi-nodes. It will save each row of final Tetrachoric correlation matrix into seperate csv files in "results_df" folder on computing cluster. 
+Next upload the "Tetra_Cal" folder onto computing cluster (Please make sure to creat empty folders "results_df" and "messages_output" inside it). Open this folder on computing cluster and enter ```sbatch tetra.slurm``` to run the "Tetrachoric_Calculation.R" script in multi-nodes. It will save each row of final Tetrachoric correlation matrix into seperate csv files in "results_df" folder on computing cluster. 
 
 For batch file
 ```bash
